@@ -1,13 +1,14 @@
 
 #include "SMC100C.h"
-#include "stdafx.h"
-#include "SerialPort.h"
+#include "serialib.h"
+#include <stdio.h>
+
 /**************************************************************************************************************************************
 Module: 
     SMC100C
 
 Revision: 
-    0.0.1
+    0.0.2
 
 Description: 
     Interfaces with an SMC100CC motion controller to control 
@@ -15,11 +16,20 @@ Description:
 Notes:
     Very raw, has not been tested properly yet
 
+Reference Materials:
+    SMC100CC manual:
+    https://www.newport.com/mam/celum/celum_assets/resources/SMC100CC___SMC100PP_-_User_s_Manual.pdf?2
+    SeriaLib:
+    https://lucidar.me/en/serialib/cross-plateform-rs232-serial-library/
+
 History:
  When           Who     What/Why
  -------------- ---     --------
  1/13/21       TimS   Added Command, Controller, Error libraries
  1/14/21       TimS   Added initial Serial Interfacing and Set/Send Command Functions
+ 1/15/21       TimS   Changed serial communications library to SeriaLib
+                      Can now effectively communicate with serial port
+
 ***************************************************************************************************************************************/
 
 
@@ -135,7 +145,7 @@ const SMC100C::StatusCharSet SMC100C::StatusLibrary[] =
 
 
 
-//Converts error message received to a plaintext string
+//Converts error message received to a plaintext string (Based on SMC100CC User Manual)
 const char* SMC100C::ConvertToErrorString(char ErrorChar)
 {
 	switch (ErrorChar)
@@ -183,57 +193,57 @@ const char* SMC100C::ConvertToErrorString(char ErrorChar)
 	};
 };
 
-//Serial Port interfacing to be added here:
-SMC100C::SMC100C(uint8_t nPortToUse, uint8_t address)
+//Serial Port initialization (May be removed)
+void SMC100C::SMC100CInit()
 {
-    COMMCONFIG config;
-    CSerialPort::GetDefaultConfig(nPortToUse, config);
-    CSerialPort port;
-    port.Open(nPortToUse, 57600, CSerialPort::Parity::NoParity, 8, CSerialPort::StopBits::OneStopBit, CSerialPort::FlowControl::XonXoffFlowControl);
+    serialib serial;
+    serial.openDevice("COM3",57600);
+    printf("Serial Port initiated");
 };
 
-//Home
-void SMC100C::Home(void)
+//Home, sends Home request to controller
+void SMC100C::Home()
 {
+    printf("Request For Home \r\n");
     SetCommand(CommandType::HomeSearch, 0.0, CommandGetSetType::None);
 };
 
-//
+//Setting Command
 
 void SMC100C::SetCommand(CommandType Type, float Parameter, CommandGetSetType GetOrSet)
 {
+    printf("Setting Command \r\n");
     CommandToPrint.Command = &CommandLibrary[static_cast<int>(Type)];
     CommandToPrint.Parameter = Parameter;
     CommandToPrint.GetOrSet = GetOrSet;
+    SendCurrentCommand();
 };
 
 //Send Command to SMC
 //Commented out parts rely on serial port interfacing information that isn't done yet
 bool SMC100C::SendCurrentCommand()
 {
+    printf("Sending Command \r\n");
+    serialib serial;
     //Will move GetCharacter, CarriageReturnChar and NewLineChar out of this function eventually
     static const char* GetCharacter = "?";
     static const char* CarriageReturnChar = "\r";
     static const char* NewLineChar = "\n";
     //Establishing Status Variable
     bool Status = true;
-    //Establishing ASCII comman character from CommandToPrint
-    const char* CommandP1 = &CommandToPrint.Command->CommandChar[0];
-    const char* CommandP2 = &CommandToPrint.Command->CommandChar[1];
     //Reading the parameter and GetOrSet type from CommandToPrint (This step may not be needed)
     CurrentCommandParameter = CommandToPrint.Parameter;
     CurrentCommandGetOrSet = CommandToPrint.GetOrSet;
-    //Open port
-    CSerialPort port;
-    //Write first ASCII character to Serial
-    port.Write(CommandP1, static_cast<DWORD>(strlen(CommandP1)));
-    //Write second ASCII character to Serial
-    port.Write(CommandP2, static_cast<DWORD>(strlen(CommandP2)));
+    //Open Serial Port
+    serial.openDevice("COM3",115200);
+    //Write ASCII characters to Serial (Also printed to output)
+    printf(&CommandToPrint.Command->CommandChar[0]);
+    serial.writeString(&CommandToPrint.Command->CommandChar[0]);
     //If the GetOrSet command type is Get, print the Get character ("?") 
     if (CurrentCommandGetOrSet == CommandGetSetType::Get)
 	{
         //Write Get Character to Serial
-        port.Write(GetCharacter, static_cast<DWORD>(strlen(GetCharacter)));
+        serial.writeString(GetCharacter);
 	}
     //If the GetOrSet command type is Set 
     else if (CurrentCommandGetOrSet == CommandGetSetType::Set)
@@ -241,12 +251,13 @@ bool SMC100C::SendCurrentCommand()
         //If the CommandParameterType is Int
         if (CommandToPrint.Command->SendType == CommandParameterType::Int)
         {
+            printf("Setting Int");
             //Create target char array for int
             char IntParam[10];
             //Populate target char array with converted int
             sprintf(IntParam, "%d" , CurrentCommandParameter);
             //Write IntParam to Serial
-            port.Write(IntParam, static_cast<DWORD>(strlen(IntParam)));
+            serial.writeString(IntParam);
         }
         //If the CommandParameterType is Float
         else if (CommandToPrint.Command->SendType == CommandParameterType::Float)
@@ -256,13 +267,13 @@ bool SMC100C::SendCurrentCommand()
             //Populate target char array with converted float
             sprintf(FloatParam, "%f", CurrentCommandParameter);
             //Write FloatParam to Serial
-            port.Write(FloatParam, static_cast<DWORD>(strlen(FloatParam)));
+            serial.writeString(FloatParam);
         }
         else
         {
             //Error check
             Status = false;
-        }
+        };
     }
     //Else if the GetSetType is None or GetAlways do nothing, else error
     else if ( (CommandToPrint.Command->GetSetType == CommandGetSetType::None) || (CommandToPrint.Command->GetSetType == CommandGetSetType::GetAlways) )
@@ -274,8 +285,5 @@ bool SMC100C::SendCurrentCommand()
         //Error Check
         Status = false;
     }
-    //Print Carriage Return to Serial (/r)
-    port.Write(CarriageReturnChar, static_cast<DWORD>(strlen(CarriageReturnChar)));
-    //Print New Line to Serial
-    port.Write(NewLineChar, static_cast<DWORD>(strlen(NewLineChar)));
-}
+    return Status;
+};

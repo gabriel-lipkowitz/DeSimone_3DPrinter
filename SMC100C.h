@@ -1,6 +1,8 @@
 #ifndef SMC100C_h
 #define SMC100C_h
 
+#include <stdint.h>
+
 class SMC100C
 {
     public:
@@ -105,16 +107,16 @@ class SMC100C
                 const char* Code;
                 StatusType Type;
             };
-            SMC100C(uint8_t nPortToUse, uint8_t address);
+            void SMC100CInit();
+            void Home(void);
 
     private:
             static const char GetCharacter;
-            void Home(void);
+            //void Home(void);
             static const CommandStruct CommandLibrary[];
             static const StatusCharSet StatusLibrary[];
             const char* ConvertToErrorString(char ErrorCode);
             bool SendCurrentCommand();
-            const CommandStruct* CurrentCommand;
             CommandEntry CommandToPrint;
             const CommandStruct* CurrentCommand;
 		    CommandGetSetType CurrentCommandGetOrSet;
