@@ -1,17 +1,13 @@
 
-#include "SMC100C.h"
-#include "serialib.h"
-#include <stdio.h>
-
 /**************************************************************************************************************************************
 Module: 
-    SMC100C
+    SMC100C.cpp
 
 Revision: 
-    0.0.2
+    0.0.3
 
 Description: 
-    Interfaces with an SMC100CC motion controller to control 
+    Interfaces with an SMC100CC motion controller
 
 Notes:
     Very raw, has not been tested properly yet
@@ -29,9 +25,17 @@ History:
  1/14/21       TimS   Added initial Serial Interfacing and Set/Send Command Functions
  1/15/21       TimS   Changed serial communications library to SeriaLib
                       Can now effectively communicate with serial port
+ 1/17/21       TimS   Added RelativeMove, SetVelocity, Query (WIP) 
 
 ***************************************************************************************************************************************/
 
+/*---------------------------------------------------------- Include Files -----------------------------------------------------------*/
+#include "SMC100C.h"
+#include "serialib.h"
+#include <stdio.h>
+/*-------------------------------------------------- Module Variables and Libraries---------------------------------------------------*/
+//Change if you need to use a different Controller Adress
+static const char* ControllerAdress = "1";
 
 //Many of these functions will likely not be needed and can be removed at a later date after testing
 //Command Libarary (Based on SMC100C User Manual p. 22-70)
@@ -45,7 +49,6 @@ History:
         //None = Only returns value
         //GetSet = Can be used to get(return) or set a value (May want to change some of these to GetAlways)
         //GetAlways = ALways gets(returns) the value
-
 const SMC100C::CommandStruct SMC100C::CommandLibrary[] =
 {
     {CommandType::None,"  ",CommandParameterType::None,CommandGetSetType::None},
@@ -94,7 +97,6 @@ const SMC100C::CommandStruct SMC100C::CommandLibrary[] =
     {CommandType::AllConfigParam,"ZT",CommandParameterType::None,CommandGetSetType::GetAlways},
     {CommandType::ESPStageConfig,"ZX",CommandParameterType::None,CommandGetSetType::GetSet},
 };
-
 //Current Controller States (Based on SMC100C User Manual p.65)
 //Used to interpret output from ErrorStatus command
 const SMC100C::StatusCharSet SMC100C::StatusLibrary[] = 
@@ -143,8 +145,21 @@ const SMC100C::StatusCharSet SMC100C::StatusLibrary[] =
 	{"47",StatusType::Jogging},
 };
 
-
-
+/*----------------------------------------------------------- Module Code ------------------------------------------------------------*/
+/**************************************************************************************************************************************
+Function: 
+    ConvertToErrorString
+Parameters:
+    char : Error char received from SMC100CC
+Returns:
+    const char* : Returns plaintext error
+Description: 
+    Converts Serial error codes received to plaintext
+Notes:
+    Based on SMC100CC User Manual p.61
+Author:
+    TimS, 1/17/21
+***************************************************************************************************************************************/
 //Converts error message received to a plaintext string (Based on SMC100CC User Manual)
 const char* SMC100C::ConvertToErrorString(char ErrorChar)
 {
@@ -199,28 +214,111 @@ void SMC100C::SMC100CInit()
     serialib serial;
     serial.openDevice("COM3",57600);
     printf("Serial Port initiated");
-};
 
-//Home, sends Home request to controller
+};
+/**************************************************************************************************************************************
+Function: 
+    Home
+Parameters:
+    
+Returns:
+    void
+Description: 
+    Send home request to SMC100CC
+Notes:
+    See SMC100CC User Manual p.41
+Author:
+    TimS, 1/17/21
+***************************************************************************************************************************************/
 void SMC100C::Home()
 {
     printf("Request For Home \r\n");
+    //Set command to home
     SetCommand(CommandType::HomeSearch, 0.0, CommandGetSetType::None);
+    //Send command
+    SendCurrentCommand();
 };
-
-//Setting Command
-
+/**************************************************************************************************************************************
+Function: 
+    SetVelocity
+Parameters:
+    float : Velocity to set
+Returns:
+    void
+Description: 
+    Send home request to SMC100CC
+Notes:
+    See SMC100CC User Manual p.66
+Author:
+    TimS, 1/17/21
+***************************************************************************************************************************************/
+void SMC100C::SetVelocity(float VelocityToSet)
+{
+    char CommandParam[25];
+    sprintf(CommandParam,"Set Velocity : %f \r\n",VelocityToSet);
+    printf(CommandParam);
+    SetCommand(CommandType::MoveRel, VelocityToSet, CommandGetSetType::Set);
+    SendCurrentCommand();
+};
+/**************************************************************************************************************************************
+Function: 
+    RelativeMove
+Parameters:
+    float : Distance for stage to move
+Returns:
+    void
+Description: 
+    Move stage relative to current position
+Notes:
+    See SMC100CC User Manual p.44
+Author:
+    TimS, 1/17/21
+***************************************************************************************************************************************/
+void SMC100C::RelativeMove(float DistanceToMove)
+{ 
+    char CommandParam[25];
+    sprintf(CommandParam,"Relative Move : %f \r\n",DistanceToMove);
+    printf(CommandParam);
+    SetCommand(CommandType::MoveRel, DistanceToMove, CommandGetSetType::Set);
+    SendCurrentCommand();
+};
+/**************************************************************************************************************************************
+Function: 
+    SetCommand
+Parameters:
+    CommandType : What Command to execute
+    float : Value for parameter
+    CommandGetSetType : Capabilities of the command
+Returns:
+    void
+Description: 
+    Sets command to be sent
+Notes:
+    Intermediary step in command sending
+Author:
+    TimS, 1/17/21
+***************************************************************************************************************************************/
 void SMC100C::SetCommand(CommandType Type, float Parameter, CommandGetSetType GetOrSet)
 {
     printf("Setting Command \r\n");
     CommandToPrint.Command = &CommandLibrary[static_cast<int>(Type)];
     CommandToPrint.Parameter = Parameter;
     CommandToPrint.GetOrSet = GetOrSet;
-    SendCurrentCommand();
 };
-
-//Send Command to SMC
-//Commented out parts rely on serial port interfacing information that isn't done yet
+/**************************************************************************************************************************************
+Function: 
+    SendCurrentCommand
+Parameters:
+    
+Returns:
+    bool : true if command is sent, false otherwise
+Description: 
+    Sends command to SMC100CC
+Notes:
+    See Serialib documentation for specifics on serial port communication
+Author:
+    TimS, 1/17/21
+***************************************************************************************************************************************/
 bool SMC100C::SendCurrentCommand()
 {
     printf("Sending Command \r\n");
@@ -236,8 +334,11 @@ bool SMC100C::SendCurrentCommand()
     CurrentCommandGetOrSet = CommandToPrint.GetOrSet;
     //Open Serial Port
     serial.openDevice("COM3",115200);
+    //Write Adress
+    serial.writeString(ControllerAdress);
     //Write ASCII characters to Serial (Also printed to output)
     printf(&CommandToPrint.Command->CommandChar[0]);
+    printf("\r\n");
     serial.writeString(&CommandToPrint.Command->CommandChar[0]);
     //If the GetOrSet command type is Get, print the Get character ("?") 
     if (CurrentCommandGetOrSet == CommandGetSetType::Get)
@@ -286,4 +387,48 @@ bool SMC100C::SendCurrentCommand()
         Status = false;
     }
     return Status;
+};
+
+
+/*----------------------------------------------------- Work in Progress Code -------------------------------------------------------*/
+/**************************************************************************************************************************************
+Function: 
+    Query
+Parameters:
+    
+Returns:
+    bool: false if error occurs, true otherwise
+Description: 
+    Get current state and last error status 
+Notes:
+    Based on SMC100CC User Manual p.64-65
+    Needs a lot of work to be functional, will probably require testing with device
+Author:
+    TimS, 1/17/21
+***************************************************************************************************************************************/
+bool SMC100C::Query()
+{
+    bool returnVal = true;
+    //Set command to ErrorStatus check
+    SetCommand(CommandType::ErrorStatus, 0.0,CommandGetSetType::None);
+    //Send command
+    SendCurrentCommand();
+
+    serialib serial;
+    //Establishing variables
+    char receivedString;
+    char finalChar;
+    //Have no idea whether this is a good value for this, will need some finetuning
+    unsigned int maxNbBytes = 1000;
+    serial.readString(&receivedString,finalChar,maxNbBytes);
+    /*if (receivedString == "1" && receivedString[1]="T" && receivedString[2]="S")
+    //{
+
+    }
+    else
+    {
+        returnVal = false
+    }
+    */
+    return returnVal;
 };

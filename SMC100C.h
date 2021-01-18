@@ -109,6 +109,9 @@ class SMC100C
             };
             void SMC100CInit();
             void Home(void);
+            bool Query();
+            void SetVelocity(float VelocityToSet);
+            void RelativeMove(float CommandParameter);
 
     private:
             static const char GetCharacter;
