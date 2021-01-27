@@ -109,9 +109,14 @@ class SMC100C
             };
             void SMC100CInit();
             void Home(void);
-            bool Query();
+            bool QueryHardware();
             void SetVelocity(float VelocityToSet);
             void RelativeMove(float CommandParameter);
+            void AbsoluteMove(float AbsoluteDistanceToMove);
+            void GetPosition();
+            void GetError();
+            void GetMotionTime();
+            void StopMotion();
 
     private:
             static const char GetCharacter;
@@ -125,6 +130,8 @@ class SMC100C
 		    CommandGetSetType CurrentCommandGetOrSet;
 		    float CurrentCommandParameter;
             void SetCommand(CommandType Type, float Parameter, CommandGetSetType GetOrSet);
+            StatusType ConvertStatus(char* StatusChar);
+            char* SerialRead();
 };
 
 #endif

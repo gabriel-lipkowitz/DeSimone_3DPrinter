@@ -34,7 +34,7 @@ History:
 //Define a keyword here to run a function
 //#define HelloWorld
 //#define HomeTest
-#define SteppedMove
+//#define SteppedMove
 /*--------------------------------------------- Module Code ------------------------------------------------*/
 int main()
 {

@@ -36,6 +36,12 @@ History:
 /*-------------------------------------------------- Module Variables and Libraries---------------------------------------------------*/
 //Change if you need to use a different Controller Adress
 static const char* ControllerAdress = "1";
+static SMC100C::StatusType Status;
+static char* HardwareError;
+static char LastError;
+//May convert these to int or float eventually
+static char* MotionTime;
+static char* CurrentPosition;
 
 //Many of these functions will likely not be needed and can be removed at a later date after testing
 //Command Libarary (Based on SMC100C User Manual p. 22-70)
@@ -165,6 +171,8 @@ const char* SMC100C::ConvertToErrorString(char ErrorChar)
 {
 	switch (ErrorChar)
 	{
+        case '@':
+            return "No Error Encountered";
 		case 'A':
 			return "Unknown message";
 		case 'B':
@@ -284,6 +292,132 @@ void SMC100C::RelativeMove(float DistanceToMove)
 };
 /**************************************************************************************************************************************
 Function: 
+    StopMotion
+Parameters:
+    
+Returns:
+    
+Description: 
+    Stop stage motion
+Notes:
+    Based on SMC100CC User Manual p.58
+Author:
+    TimS, 1/21/21
+***************************************************************************************************************************************/
+void SMC100C::StopMotion()
+{
+    printf("Stopping Motion");
+    SetCommand(CommandType::StopMotion, 0.0, CommandGetSetType::None);
+    SendCurrentCommand();
+}
+/**************************************************************************************************************************************
+Function: 
+    AbsoluteMove
+Parameters:
+    
+Returns:
+    bool: false if error occurs, true otherwise
+Description: 
+    Get current state and last error status 
+Notes:
+    Based on SMC100CC User Manual p.43
+Author:
+    TimS, 1/19/21
+***************************************************************************************************************************************/
+void SMC100C::AbsoluteMove(float AbsoluteDistanceToMove)
+{ 
+    char CommandParam[25];
+    sprintf(CommandParam,"Absolute Move : %f \r\n",AbsoluteDistanceToMove);
+    printf(CommandParam);
+    SetCommand(CommandType::MoveRel, AbsoluteDistanceToMove, CommandGetSetType::Set);
+    SendCurrentCommand();
+};
+/**************************************************************************************************************************************
+Function: 
+    GetError
+Parameters:
+    
+Returns:
+    bool: false if error occurs, true otherwise
+Description: 
+    Get current state and last error status 
+Notes:
+    Based on SMC100CC User Manual p.61
+Author:
+    TimS, 1/20/21
+***************************************************************************************************************************************/
+void SMC100C::GetError()
+{ 
+    SetCommand(CommandType::LastCommandErr, 0.0, CommandGetSetType::Get);
+    SendCurrentCommand();
+    //Store serial read to ErrorChar variable
+    char* ErrorChar = SerialRead();
+    //Output from GetError command will be in format 1TEA where the last character is the error char
+    LastError = ErrorChar[3];
+    ConvertToErrorString(ErrorChar[3]);
+};
+/**************************************************************************************************************************************
+Function: 
+    GetMotionTime
+Parameters:
+    
+Returns:
+    
+Description: 
+    Get estimated time to complete move
+Notes:
+    Based on SMC100CC User Manual p.45
+Author:
+    TimS, 1/23/21
+***************************************************************************************************************************************/
+void SMC100C::GetMotionTime()
+{ 
+    SetCommand(CommandType::MoveEstimate, 0.0, CommandGetSetType::Get);
+    SendCurrentCommand();
+    char* MotionOutput;
+    MotionOutput = SerialRead();
+    char* MTime;
+    for (uint8_t index = 3; index < strlen(MotionOutput);index++)
+    {
+        strcat(MTime,&MotionOutput[index]);
+    }
+    MotionTime = MTime;
+    printf(MotionTime);
+};
+/**************************************************************************************************************************************
+Function: 
+    GetPosition
+Parameters:
+    
+Returns:
+    bool: false if error occurs, true otherwise
+Description: 
+    Get current state and last error status 
+Notes:
+    Based on SMC100CC User Manual p.64-65
+    Needs a lot of work to be functional, will probably require testing with device
+Author:
+    TimS, 1/25/21
+***************************************************************************************************************************************/
+void SMC100C::GetPosition()
+{ 
+    SetCommand(CommandType::PositionReal, 0.0, CommandGetSetType::Get);
+    SendCurrentCommand();
+    char* PositionOutput;
+    PositionOutput = SerialRead();
+    char* POut;
+    for (uint8_t index = 3; index < strlen(PositionOutput);index++)
+    {
+        strcat(POut,&PositionOutput[index]);
+    }
+   CurrentPosition = POut;
+    printf(CurrentPosition);
+};
+/**************************************************************************************************************************************
+                            private functions
+ *************************************************************************************************************************************/
+/**************************************************************************************************************************************
+Function: 
     SetCommand
 Parameters:
     CommandType : What Command to execute
@@ -388,12 +522,59 @@ bool SMC100C::SendCurrentCommand()
     }
     return Status;
 };
-
-
+/**************************************************************************************************************************************
+Function: 
+    ConvertStatus
+Parameters:
+    char*: StatusChar from Query functions
+Returns:
+    SMC100C::StatusType
+Description: 
+    Convert code to type for readability 
+Notes:
+    
+Author:
+    TimS, 1/19/21
+***************************************************************************************************************************************/
+SMC100C::StatusType SMC100C::ConvertStatus(char* StatusChar)
+{
+    for (int Index = 0; Index < 21; ++Index)
+	{
+		if ( strcmp( StatusChar, StatusLibrary[Index].Code ) == 0)
+		{
+			return StatusLibrary[Index].Type;
+		}
+	}
+	return StatusType::Error;
+}
+/**************************************************************************************************************************************
+Function: 
+    SerialRead
+Parameters:
+    
+Returns:
+    bool: false if error occurs, true otherwise
+Description: 
+    Get current state and last error status 
+Notes:
+    Based on SMC100CC User Manual p.64-65
+    Needs a lot of work to be functional, will probably require testing with device
+Author:
+    TimS, 1/21/21
+***************************************************************************************************************************************/
+char* SMC100C::SerialRead()
+{
+    serialib Read;
+    char receivedString;
+    char finalChar;
+    unsigned int maxNbBytes = 100;
+    Read.readString(&receivedString,finalChar,maxNbBytes);
+    return &receivedString;
+}
 /*----------------------------------------------------- Work in Progress Code -------------------------------------------------------*/
 /**************************************************************************************************************************************
 Function: 
-    Query
+    QueryHardware
 Parameters:
     
 Returns:
@@ -406,29 +587,37 @@ Notes:
 Author:
     TimS, 1/17/21
 ***************************************************************************************************************************************/
-bool SMC100C::Query()
+bool SMC100C::QueryHardware()
 {
+    //Establishing variables
     bool returnVal = true;
+    char* receivedString;
+    char finalChar;
     //Set command to ErrorStatus check
     SetCommand(CommandType::ErrorStatus, 0.0,CommandGetSetType::None);
     //Send command
     SendCurrentCommand();
 
     serialib serial;
-    //Establishing variables
-    char receivedString;
-    char finalChar;
     //Have no idea whether this is a good value for this, will need some finetuning
-    unsigned int maxNbBytes = 1000;
-    serial.readString(&receivedString,finalChar,maxNbBytes);
-    /*if (receivedString == "1" && receivedString[1]="T" && receivedString[2]="S")
-    //{
-
-    }
-    else
+    unsigned int maxNbBytes = 100;
+    serial.readString(receivedString,finalChar,maxNbBytes);
+    //Make sure that the message received is from the ErrorStatus 
+    if (receivedString[0] == '1' && receivedString[1] == 'T' && receivedString[2] == 'S')
     {
-        returnVal = false
+        Status = ConvertStatus(strcat(&receivedString[7],&receivedString[8]));
+        char* ErrorCode;
+        for (int i=3; i<=7; i++)
+        {
+            strcat(ErrorCode, &receivedString[i]);
+        }
+        HardwareError = ErrorCode;
     }
-    */
+    else 
+    {
+        returnVal = false;
+    };
     return returnVal;
 };
+
+
